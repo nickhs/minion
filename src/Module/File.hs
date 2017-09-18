@@ -14,6 +14,8 @@ import Control.Monad.Reader.Class (MonadReader)
 import Shelly (shelly)
 import Data.Text (Text)
 import qualified Data.Text as DT
+import GHC.Generics (Generic)
+import qualified Dhall (Interpret)
 
 data FileStates = Absent | File FileProperties
 
@@ -21,7 +23,9 @@ data FileProperties = FileProperties {
     owner :: Text,
     group :: Text,
     mode :: Text
-}
+} deriving (Show, Eq, Ord, Generic)
+
+instance Dhall.Interpret FileProperties
 
 data FileModule = FileModule {
     path :: FilePath,
