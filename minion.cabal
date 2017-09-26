@@ -15,20 +15,34 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:
+    Env,
+    Task,
+    Log,
     Module,
+    PrivEsc,
+    IntermediateEnv,
     Module.File,
-    Module.Copy
+    Module.Copy,
+    Module.Shell,
+    Config.Main
   build-depends:       base >= 4.7 && < 5,
                        text,
-                       dhall,
                        mtl,
-                       shelly
+                       shelly,
+                       text-format,
+                       ansi-terminal,
+                       lens,
+                       random
   default-language:    Haskell2010
   default-extensions:
     OverloadedStrings,
     DeriveGeneric,
     RankNTypes,
-    FlexibleContexts
+    FlexibleContexts,
+    TemplateHaskell,
+    MultiParamTypeClasses,
+    FunctionalDependencies,
+    FlexibleInstances
 
 executable minion-exe
   hs-source-dirs:      app
@@ -37,9 +51,13 @@ executable minion-exe
   build-depends:       base
                      , minion
                      , text
-                     , dhall
                      , shelly
                      , mtl
+                     , text-format
+                     , ansi-terminal
+                     , optparse-applicative
+                     , directory
+                     , lens
   default-language:    Haskell2010
   default-extensions:
     OverloadedStrings,

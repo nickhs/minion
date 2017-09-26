@@ -6,52 +6,60 @@ module Module.File (
     FileProperties(FileProperties)
 ) where
 
-import Module (Module, Result(..), DidUpdate(..), LogMsgType(..), execute, unimplemented, Env(..))
-
-import Control.Monad.Reader (MonadReader(ask))
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Reader.Class (MonadReader)
+import Control.Monad.Reader (MonadReader(ask), MonadReader)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Lens ((^.), view)
 import Shelly (shelly)
 import Data.Text (Text)
 import qualified Data.Text as DT
-import GHC.Generics (Generic)
-import qualified Dhall (Interpret)
 
-data FileStates = Absent | File FileProperties
+import Env(HasRemoteExec, ExecFunc, remoteExec, Env)
+import Module (Action(..), Actionable(..), Result(..), DidUpdate(..), unimplemented)
+
+data FileStates = Absent | File FileProperties deriving (Show, Eq, Ord)
 
 data FileProperties = FileProperties {
     owner :: Text,
     group :: Text,
     mode :: Text
-} deriving (Show, Eq, Ord, Generic)
-
-instance Dhall.Interpret FileProperties
+} deriving (Show, Eq, Ord)
 
 data FileModule = FileModule {
-    path :: FilePath,
+    path :: DT.Text,
     state :: FileStates
-}
+} deriving (Show, Eq, Ord)
+instance Actionable FileModule where
+    toAction self = Action {
+        execute = file self,
+        describe = describe' self
+    }
 
-instance Module FileModule where
-    execute self = do
-        exec <- envRemoteExec <$> ask
-        result <- exec "ls" ["-lp --time-style=\"+%s\"", DT.pack $ path self]
+describe' :: FileModule -> Text
+describe' (FileModule path' Absent) = "Deleting file " `DT.append` path'
+describe' (FileModule path' (File _)) = "Changing file perms" `DT.append` path'
 
-        -- parse
-        let lsItems = map parseLs (DT.lines result)
-        -- find matching items
-        let matches = filter (\x -> name x == (DT.pack . path) self) lsItems
+file :: (MonadReader Env m, MonadIO m) => FileModule -> m (Result DidUpdate)
+file self = do
+    env <- ask
+    let exec = view remoteExec env
+    result <- liftIO $ exec env "ls" ["-lp --time-style=\"+%s\"", path self]
 
-        case state self of
-            Absent -> processAbsent matches
-            File properties -> processFile properties matches
+    -- parse
+    let lsItems = map parseLs (DT.lines result)
+    -- find matching items
+    let matches = filter (\x -> name x == path self) lsItems
+
+    case state self of
+        Absent -> processAbsent matches
+        File properties -> processFile properties matches
 
 processAbsent :: (MonadReader Env m, MonadIO m) => [LsLine] -> m (Result DidUpdate)
 processAbsent lines
     | num == 0 = return $ Success NoChange
     | num == 1 = do
-        exec <- envRemoteExec <$> ask
-        result <- exec "rm" [name (head lines)]
+        env <- ask
+        let exec = view remoteExec env
+        result <- liftIO $ exec env "rm" [name (head lines)]
         -- FIXME(nickhs): make sure we actually deleted it
         return $ Success ChangeMade
     | num > 1 = return $ Failed ["too many items", (DT.pack . show) lines] NoChange
@@ -62,11 +70,12 @@ processFile properties lines
     | num == 0 = return $ Failed ["no file found?"] NoChange
     | num == 1 = do
         let line = head lines
-        exec <- envRemoteExec <$> ask
+        env <- ask
+        exec <- view remoteExec <$> ask
         -- fuck it, just chmod and chown it and we're done.
         let chownStr = owner properties `DT.append` ":" `DT.append` group properties
-        _ <- exec "chown" [chownStr, name line]
-        _ <- exec "chmod" [mode properties, name line]
+        _ <- liftIO $ exec env "chown" [chownStr, name line]
+        _ <- liftIO $ exec env "chmod" [mode properties, name line]
         -- FIXME(hanley): make sure it actually happened
         return $ Success ChangeMade
     | num > 1 = return $ Failed ["too many items", (DT.pack . show) lines] NoChange
